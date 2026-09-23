@@ -22,3 +22,4 @@
 ## User Preferences
 - **No passive grilling**: Avoid generic 20-questions or questionnaires asking "what are you missing?". Bring ideas, take the wheel on technical scaffolding, and provide concrete solutions.
 - **Direct execution**: Test and verify builds, commits, and pushes proactively.
+

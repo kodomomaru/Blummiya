@@ -94,3 +94,4 @@ node scripts/init-db.mjs
 - **Be Proactive & Direct**: Do not stall with meta-questionnaires or "grill me" checklists. Propose concrete architectures, scaffold clean code, and execute.
 - **Respect Aesthetics**: Keep the UI bioluminescent, fluid, and organic—never degrade it into standard administrative tables or flat corporate dashboard forms.
 - **Preserve Native SQLite**: Retain zero-dependency `node:sqlite` for database operations.
+
