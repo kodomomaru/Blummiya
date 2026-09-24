@@ -459,8 +459,8 @@ export function PathwayCanvas({
             );
           })}
 
-          {/* 2. Deep Multi-Node Evolutionary Streams (Light flows through full chains: A -> B -> C -> ...) */}
-          {fullLineagePaths.map((lineage) => {
+          {/* 2. Deep Multi-Node Evolutionary Streams (1 single, focused pulse per pathway) */}
+          {fullLineagePaths.map((lineage, pathIdx) => {
             const isPathHighlighted =
               hoveredSkillId ? lineage.nodeIds.includes(hoveredSkillId) :
               selectedSkillId ? lineage.nodeIds.includes(selectedSkillId) : false;
@@ -468,15 +468,10 @@ export function PathwayCanvas({
             const originNode = lineage.nodes[0];
             const originCat = SKILL_CATEGORIES[originNode.category] || SKILL_CATEGORIES.craft;
 
-            // Duration scales with number of nodes: ~2.4s per segment
-            const totalDuration = Math.max(4.5, (lineage.nodes.length - 1) * 2.5);
-
-            // Stagger multiple particles along the multi-node pathway so the flow is continuous
-            const numParticles = Math.min(3, lineage.nodes.length);
-            const particleOffsets = Array.from(
-              { length: numParticles },
-              (_, i) => -(i * (totalDuration / numParticles))
-            );
+            // Duration scales with number of nodes: ~2.8s per segment
+            const totalDuration = Math.max(4.5, (lineage.nodes.length - 1) * 2.8);
+            // Slight initial phase offset per pathway so paths don't pulse simultaneously
+            const pathOffset = -((pathIdx * 1.6) % totalDuration);
 
             return (
               <g key={lineage.id} className="transition-all duration-300 pointer-events-none">
@@ -492,54 +487,52 @@ export function PathwayCanvas({
                   />
                 )}
 
-                {/* Traveling particles moving continuously through the entire multi-node pathway */}
-                {particleOffsets.map((offset, pIdx) => (
-                  <g key={pIdx}>
-                    {/* Outer glowing energy pulse */}
+                {/* Exactly 1 traveling pulse moving cleanly through the entire evolutionary pathway */}
+                <g>
+                  {/* Outer glowing energy pulse */}
+                  <circle
+                    r={isPathHighlighted ? 5.2 : 3.5}
+                    fill={originCat.color}
+                    filter="url(#particle-glow)"
+                  >
+                    <animateMotion
+                      path={lineage.pathData}
+                      dur={`${isPathHighlighted ? totalDuration * 0.75 : totalDuration}s`}
+                      begin={`${pathOffset}s`}
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+
+                  {/* Starlight nucleus core */}
+                  <circle
+                    r={isPathHighlighted ? 2.6 : 1.8}
+                    fill="#ffffff"
+                  >
+                    <animateMotion
+                      path={lineage.pathData}
+                      dur={`${isPathHighlighted ? totalDuration * 0.75 : totalDuration}s`}
+                      begin={`${pathOffset}s`}
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+
+                  {/* Trailing comet spark when highlighted */}
+                  {isPathHighlighted && (
                     <circle
-                      r={isPathHighlighted ? 5.5 : 3.6}
-                      fill={originCat.color}
+                      r="2.8"
+                      fill="#22d3ee"
                       filter="url(#particle-glow)"
+                      opacity="0.8"
                     >
                       <animateMotion
                         path={lineage.pathData}
-                        dur={`${isPathHighlighted ? totalDuration * 0.75 : totalDuration}s`}
-                        begin={`${offset}s`}
+                        dur={`${totalDuration * 0.75}s`}
+                        begin={`${pathOffset - 0.2}s`}
                         repeatCount="indefinite"
                       />
                     </circle>
-
-                    {/* Starlight nucleus core */}
-                    <circle
-                      r={isPathHighlighted ? 2.8 : 1.8}
-                      fill="#ffffff"
-                    >
-                      <animateMotion
-                        path={lineage.pathData}
-                        dur={`${isPathHighlighted ? totalDuration * 0.75 : totalDuration}s`}
-                        begin={`${offset}s`}
-                        repeatCount="indefinite"
-                      />
-                    </circle>
-
-                    {/* Trailing comet spark when highlighted */}
-                    {isPathHighlighted && (
-                      <circle
-                        r="3.2"
-                        fill="#22d3ee"
-                        filter="url(#particle-glow)"
-                        opacity="0.8"
-                      >
-                        <animateMotion
-                          path={lineage.pathData}
-                          dur={`${totalDuration * 0.75}s`}
-                          begin={`${offset - 0.25}s`}
-                          repeatCount="indefinite"
-                        />
-                      </circle>
-                    )}
-                  </g>
-                ))}
+                  )}
+                </g>
               </g>
             );
           })}
