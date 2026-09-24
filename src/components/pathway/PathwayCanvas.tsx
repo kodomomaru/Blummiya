@@ -515,23 +515,6 @@ export function PathwayCanvas({
                       repeatCount="indefinite"
                     />
                   </circle>
-
-                  {/* Trailing comet spark when highlighted */}
-                  {isPathHighlighted && (
-                    <circle
-                      r="2.8"
-                      fill="#22d3ee"
-                      filter="url(#particle-glow)"
-                      opacity="0.8"
-                    >
-                      <animateMotion
-                        path={lineage.pathData}
-                        dur={`${totalDuration * 0.75}s`}
-                        begin={`${pathOffset - 0.2}s`}
-                        repeatCount="indefinite"
-                      />
-                    </circle>
-                  )}
                 </g>
               </g>
             );
