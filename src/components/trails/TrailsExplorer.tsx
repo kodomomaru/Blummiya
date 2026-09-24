@@ -24,9 +24,12 @@ export function TrailsExplorer({ onSelectTrailSkill }: TrailsExplorerProps) {
 
   const fetchTrails = () => {
     fetch('/api/trails')
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((data) => setTrails(data.trails || []))
-      .catch((err) => console.error(err))
+      .catch((err) => console.error('Failed to load trails:', err))
       .finally(() => setLoading(false));
   };
 

@@ -14,18 +14,37 @@ export default function Home() {
   const [skills, setSkills] = useState<PathwaySkill[]>([]);
   const [links, setLinks] = useState<PathwayLink[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<PathwaySkill | null>(null);
   const [isSparkModalOpen, setIsSparkModalOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const fetchPathwayData = () => {
+    setLoading(true);
+    setFetchError(null);
     fetch('/api/skills')
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          let message = 'Server error';
+          try {
+            const parsed = JSON.parse(text);
+            message = parsed.error || parsed.message || message;
+          } catch {
+            message = `HTTP ${res.status}: ${res.statusText || 'Error'}`;
+          }
+          throw new Error(message);
+        }
+        return res.json();
+      })
       .then((data) => {
         if (data.skills) setSkills(data.skills);
         if (data.links) setLinks(data.links);
       })
-      .catch((err) => console.error('Failed to load pathway:', err))
+      .catch((err) => {
+        console.error('Failed to load pathway:', err);
+        setFetchError(err.message || 'Failed to connect to living pathway');
+      })
       .finally(() => setLoading(false));
   };
 
@@ -98,6 +117,17 @@ export default function Home() {
             {loading ? (
               <div className="h-[60dvh] min-h-[420px] sm:h-[620px] w-full rounded-2xl glass-panel border border-white/10 flex items-center justify-center text-slate-500 text-sm">
                 Illuminating living pathway...
+              </div>
+            ) : fetchError ? (
+              <div className="h-[60dvh] min-h-[420px] sm:h-[620px] w-full rounded-2xl glass-panel border border-red-500/20 bg-red-950/10 flex flex-col items-center justify-center p-6 text-center">
+                <p className="text-red-400 font-semibold mb-2 text-sm sm:text-base">Pathway connection interrupted</p>
+                <p className="text-slate-400 text-xs max-w-md mb-4">{fetchError}</p>
+                <button
+                  onClick={fetchPathwayData}
+                  className="px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-semibold border border-emerald-500/30 transition-all active:scale-95"
+                >
+                  Reconnect to Constellation
+                </button>
               </div>
             ) : (
               <PathwayCanvas

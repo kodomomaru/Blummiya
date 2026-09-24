@@ -16,9 +16,12 @@ export function ChronicleFeed({ onOpenSparkModal, refreshTrigger }: ChronicleFee
   useEffect(() => {
     setLoading(true);
     fetch('/api/moments')
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then((data) => setMoments(data.moments || []))
-      .catch((err) => console.error(err))
+      .catch((err) => console.error('Failed to load moments:', err))
       .finally(() => setLoading(false));
   }, [refreshTrigger]);
 

@@ -2,19 +2,35 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 
 // Singleton SQLite instance for the Blummiya living pathway
-const DB_PATH = path.join(process.cwd(), 'blummiya.db');
+const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'blummiya.db');
 
 let _db: DatabaseSync | null = null;
 
 export function getDb(): DatabaseSync {
   if (!_db) {
-    _db = new DatabaseSync(DB_PATH);
-    initDatabase(_db);
+    try {
+      _db = new DatabaseSync(DB_PATH);
+      initDatabase(_db);
+    } catch (err) {
+      console.error('Failed to initialize SQLite database at', DB_PATH, err);
+      throw err;
+    }
   }
   return _db;
 }
 
 function initDatabase(db: DatabaseSync) {
+  // Enable Write-Ahead Logging and timeout to avoid lock contention under concurrency/HMR
+  try {
+    db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 5000;
+      PRAGMA synchronous = NORMAL;
+    `);
+  } catch (pragmaErr) {
+    console.warn('Note: PRAGMA journal_mode/busy_timeout warning:', pragmaErr);
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS skills (
       id TEXT PRIMARY KEY,
