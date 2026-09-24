@@ -1,5 +1,5 @@
-import { getDb } from '../src/lib/db.ts';
-import { extractHiddenSkills } from '../src/lib/skills/extractor.ts';
+import { getDb } from '../src/lib/db';
+import { extractHiddenSkills } from '../src/lib/skills/extractor';
 
 console.log('--- Testing Blummiya Backend & Extraction Engine ---');
 
@@ -31,4 +31,3 @@ if (analysis.skills.length === 0) {
 }
 
 console.log('✓ All verification tests passed successfully!');
-

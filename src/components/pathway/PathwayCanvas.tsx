@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { Sparkles, Eye, Filter, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import React, { useState, useRef, useMemo, useCallback } from 'react';
+import { Filter, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { SKILL_CATEGORIES, SkillCategory } from '@/lib/skills/taxonomy';
 
 export interface PathwaySkill {
@@ -44,6 +43,11 @@ export function PathwayCanvas({
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
+  // Touch gesture tracking for mobile & folding devices
+  const touchStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const initialPinchDistRef = useRef<number | null>(null);
+  const initialScaleRef = useRef<number>(1);
+
   // Map for fast lookup
   const skillMap = useMemo(() => new Map(skills.map((s) => [s.id, s])), [skills]);
 
@@ -75,9 +79,10 @@ export function PathwayCanvas({
     return { stage: 'Awakened Seed', icon: '🌱', auraSize: 20, ringColor: '#fbbf24' };
   };
 
-  // Pan handlers
+  // Mouse pan handlers
   const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).tagName.toLowerCase() === 'svg' || (e.target as HTMLElement).tagName.toLowerCase() === 'rect') {
+    const target = e.target as HTMLElement;
+    if (target.tagName.toLowerCase() === 'svg' || target.tagName.toLowerCase() === 'rect') {
       setIsDragging(true);
       dragStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
     }
@@ -94,13 +99,56 @@ export function PathwayCanvas({
 
   const handleMouseUp = () => setIsDragging(false);
 
+  // Mobile Touch Pan & Pinch-to-Zoom handlers
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      // 1 finger = pan
+      setIsDragging(true);
+      touchStartRef.current = {
+        x: e.touches[0].clientX - pan.x,
+        y: e.touches[0].clientY - pan.y,
+      };
+      initialPinchDistRef.current = null;
+    } else if (e.touches.length === 2) {
+      // 2 fingers = pinch zoom
+      setIsDragging(false);
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      initialPinchDistRef.current = Math.hypot(dx, dy);
+      initialScaleRef.current = scale;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 1 && isDragging) {
+      // Pan
+      setPan({
+        x: e.touches[0].clientX - touchStartRef.current.x,
+        y: e.touches[0].clientY - touchStartRef.current.y,
+      });
+    } else if (e.touches.length === 2 && initialPinchDistRef.current) {
+      // Pinch to zoom
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const currentDist = Math.hypot(dx, dy);
+      const zoomFactor = currentDist / initialPinchDistRef.current;
+      const newScale = Math.min(2.0, Math.max(0.5, initialScaleRef.current * zoomFactor));
+      setScale(newScale);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsDragging(false);
+    initialPinchDistRef.current = null;
+  };
+
   const resetView = () => {
     setScale(1);
     setPan({ x: 0, y: 0 });
   };
 
   return (
-    <div className="relative w-full h-[620px] rounded-2xl overflow-hidden border border-white/10 bg-[#080c14] select-none">
+    <div className="relative w-full h-[60dvh] min-h-[420px] sm:h-[620px] max-h-[750px] rounded-2xl overflow-hidden border border-white/10 bg-[#080c14] select-none touch-none">
       {/* Background ambient nebula glow */}
       <div className="absolute inset-0 bg-ambient-nebula pointer-events-none" />
 
@@ -122,26 +170,26 @@ export function PathwayCanvas({
         ))}
       </div>
 
-      {/* Top Filter and Info Bar */}
-      <div className="absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
-        {/* Category Filter Pills */}
-        <div className="flex items-center space-x-1.5 p-1 rounded-xl bg-slate-900/80 backdrop-blur-md border border-white/10 pointer-events-auto">
-          <Filter className="w-3.5 h-3.5 ml-2 text-slate-400" />
+      {/* Top Filter and Controls Bar (Responsive for narrow & folding screens) */}
+      <div className="absolute top-2.5 sm:top-4 left-2.5 sm:left-4 right-2.5 sm:right-4 z-20 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pointer-events-none">
+        {/* Category Filter Pills (horizontally scrollable on mobile/folding) */}
+        <div className="flex items-center space-x-1.5 p-1 rounded-xl bg-slate-900/85 backdrop-blur-md border border-white/10 pointer-events-auto overflow-x-auto no-scrollbar scroll-smooth">
+          <Filter className="w-3.5 h-3.5 ml-1.5 text-slate-400 shrink-0" />
           <button
             onClick={() => setFilterCategory('all')}
-            className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-all ${
+            className={`px-2.5 py-1 text-xs rounded-lg font-medium whitespace-nowrap transition-all shrink-0 ${
               filterCategory === 'all'
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-glow-sm'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            All Constellations ({skills.length})
+            All ({skills.length})
           </button>
           {Object.entries(SKILL_CATEGORIES).map(([catKey, cat]) => (
             <button
               key={catKey}
               onClick={() => setFilterCategory(catKey)}
-              className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-all ${
+              className={`px-2.5 py-1 text-xs rounded-lg font-medium whitespace-nowrap transition-all shrink-0 ${
                 filterCategory === catKey
                   ? `${cat.bgClass} border border-current shadow-sm`
                   : 'text-slate-400 hover:text-slate-200'
@@ -153,40 +201,45 @@ export function PathwayCanvas({
         </div>
 
         {/* Zoom & View Controls */}
-        <div className="flex items-center space-x-1 p-1 rounded-xl bg-slate-900/80 backdrop-blur-md border border-white/10 pointer-events-auto">
+        <div className="self-end sm:self-auto flex items-center space-x-1 p-1 rounded-xl bg-slate-900/85 backdrop-blur-md border border-white/10 pointer-events-auto">
           <button
-            onClick={() => setScale((s) => Math.min(1.8, s + 0.15))}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-all"
+            onClick={() => setScale((s) => Math.min(2.0, s + 0.15))}
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-all touch-manipulation"
             title="Zoom In"
+            aria-label="Zoom in on pathway"
           >
             <ZoomIn className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setScale((s) => Math.max(0.6, s - 0.15))}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-all"
+            onClick={() => setScale((s) => Math.max(0.5, s - 0.15))}
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-all touch-manipulation"
             title="Zoom Out"
+            aria-label="Zoom out of pathway"
           >
             <ZoomOut className="w-4 h-4" />
           </button>
           <button
             onClick={resetView}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-all"
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition-all touch-manipulation"
             title="Reset Pan/Zoom"
+            aria-label="Reset pathway view"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Main SVG Graph */}
+      {/* Main SVG Graph with Mouse AND Touch Listeners */}
       <svg
-        className="w-full h-full cursor-grab active:cursor-grabbing"
+        className="w-full h-full cursor-grab active:cursor-grabbing touch-none"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
         <defs>
-          {/* Bioluminescent Gradients */}
           <linearGradient id="trail-grad-emerald" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#10b981" stopOpacity="0.8" />
             <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.8" />
@@ -203,7 +256,10 @@ export function PathwayCanvas({
 
         <g
           transform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}
-          style={{ transformOrigin: 'center center', transition: isDragging ? 'none' : 'transform 0.1s ease-out' }}
+          style={{
+            transformOrigin: 'center center',
+            transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+          }}
         >
           {/* Organic Trail Lines connecting skills */}
           {links.map((link) => {
@@ -214,14 +270,12 @@ export function PathwayCanvas({
             const isHighlighted =
               activeHighlightedNeighbors.has(link.source_id) && activeHighlightedNeighbors.has(link.target_id);
 
-            // Curved quadratic bezier for natural organic feel
             const midX = (source.x + target.x) / 2 + (source.y - target.y) * 0.08;
             const midY = (source.y + target.y) / 2 + (target.x - source.x) * 0.08;
             const pathData = `M ${source.x} ${source.y} Q ${midX} ${midY} ${target.x} ${target.y}`;
 
             return (
               <g key={link.id} className="transition-opacity duration-300">
-                {/* Background glow path */}
                 <path
                   d={pathData}
                   fill="none"
@@ -232,7 +286,6 @@ export function PathwayCanvas({
                   filter={isHighlighted ? 'url(#glow)' : undefined}
                 />
 
-                {/* Animated light pulse along highlighted trail */}
                 {isHighlighted && (
                   <circle r="3.5" fill="#34d399" filter="url(#glow)">
                     <animateMotion path={pathData} dur="3s" repeatCount="indefinite" />
@@ -265,6 +318,9 @@ export function PathwayCanvas({
                 className="cursor-pointer transition-all duration-300"
                 style={{ opacity }}
               >
+                {/* Large Invisible Hit Target for Thumb Ergonomics */}
+                <circle r="32" fill="transparent" />
+
                 {/* Outer Radiance Halo Ring */}
                 <circle
                   r={bloom.auraSize + (isHovered || isSelected ? 8 : 0)}
@@ -342,7 +398,7 @@ export function PathwayCanvas({
                   </text>
                 </g>
 
-                {/* Radiance percentage pill on hover */}
+                {/* Radiance percentage pill on hover or select */}
                 {(isHovered || isSelected) && (
                   <g transform="translate(0, -26)" className="pointer-events-none animate-fadeIn">
                     <rect
@@ -373,28 +429,27 @@ export function PathwayCanvas({
         </g>
       </svg>
 
-      {/* Canvas Bottom Legend */}
-      <div className="absolute bottom-3 left-4 right-4 z-20 flex flex-wrap items-center justify-between text-xs text-slate-400 pointer-events-none">
-        <div className="flex items-center space-x-3 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-white/10 backdrop-blur-md pointer-events-auto">
+      {/* Canvas Bottom Legend (compact & responsive) */}
+      <div className="absolute bottom-2.5 sm:bottom-3 left-2.5 sm:left-4 right-2.5 sm:right-4 z-20 flex flex-wrap items-center justify-between gap-1.5 text-[11px] sm:text-xs text-slate-400 pointer-events-none">
+        <div className="flex items-center space-x-2 bg-slate-900/85 px-2.5 py-1 rounded-xl border border-white/10 backdrop-blur-md pointer-events-auto">
           <span className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
-            <span className="text-slate-300">Tacit / Hidden Skill</span>
+            <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+            <span className="text-slate-300">Tacit Skill</span>
           </span>
-          <span className="text-slate-600">•</span>
-          <span>Click any node to explore its chronicle lineage</span>
+          <span className="text-slate-600 hidden sm:inline">•</span>
+          <span className="hidden sm:inline">Tap node to explore lineage</span>
         </div>
 
-        <div className="hidden md:flex items-center space-x-2 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-white/10 backdrop-blur-md pointer-events-auto">
+        <div className="hidden sm:flex items-center space-x-1.5 bg-slate-900/85 px-2.5 py-1 rounded-xl border border-white/10 backdrop-blur-md pointer-events-auto">
           <span>🌱 Seed</span>
           <span>➜</span>
           <span>🌿 Sprout</span>
           <span>➜</span>
           <span>🌸 Bloom</span>
           <span>➜</span>
-          <span className="text-emerald-300 font-medium">✨ Radiant Beacon</span>
+          <span className="text-emerald-300 font-medium">✨ Beacon</span>
         </div>
       </div>
     </div>
   );
 }
-
