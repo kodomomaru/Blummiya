@@ -79,19 +79,112 @@ export function PathwayCanvas({
   // Map for fast lookup
   const skillMap = useMemo(() => new Map(skills.map((s) => [s.id, s])), [skills]);
 
-  // Connected skills for highlighted hover
-  const activeHighlightedNeighbors = useMemo(() => {
+  // Compute all full multi-node evolutionary lineage pathways (e.g. A -> B -> C -> D)
+  const fullLineagePaths = useMemo(() => {
+    const adj = new Map<string, string[]>();
+    const inDegree = new Map<string, number>();
+
+    skills.forEach((s) => {
+      adj.set(s.id, []);
+      inDegree.set(s.id, 0);
+    });
+
+    links.forEach((link) => {
+      const source = skillMap.get(link.source_id);
+      const target = skillMap.get(link.target_id);
+      if (!source || !target) return;
+      const { parent, child } = getLineageDirection(source, target);
+      adj.get(parent.id)?.push(child.id);
+      inDegree.set(child.id, (inDegree.get(child.id) || 0) + 1);
+    });
+
+    // Root nodes have inDegree === 0 and at least one child
+    let rootIds = Array.from(inDegree.entries())
+      .filter(([id, deg]) => deg === 0 && (adj.get(id)?.length || 0) > 0)
+      .map(([id]) => id);
+
+    // If no node has inDegree === 0, select top radiance nodes with outgoing connections
+    if (rootIds.length === 0 && skills.length > 0) {
+      rootIds = skills
+        .filter((s) => (adj.get(s.id)?.length || 0) > 0)
+        .sort((a, b) => b.radiance - a.radiance)
+        .slice(0, 3)
+        .map((s) => s.id);
+    }
+
+    const paths: {
+      id: string;
+      nodeIds: string[];
+      nodes: PathwaySkill[];
+      pathData: string;
+    }[] = [];
+
+    // DFS to traverse to all leaves to form full multi-node paths
+    function dfs(currId: string, currentPath: string[], visited: Set<string>) {
+      const children = adj.get(currId) || [];
+      const validChildren = children.filter((cId) => !visited.has(cId));
+
+      if (validChildren.length === 0) {
+        if (currentPath.length >= 2) {
+          const nodes = currentPath.map((id) => skillMap.get(id)!).filter(Boolean);
+          if (nodes.length >= 2) {
+            let d = `M ${nodes[0].x} ${nodes[0].y}`;
+            for (let i = 0; i < nodes.length - 1; i++) {
+              const p1 = nodes[i];
+              const p2 = nodes[i + 1];
+              const midX = (p1.x + p2.x) / 2 + (p1.y - p2.y) * 0.08;
+              const midY = (p1.y + p2.y) / 2 + (p2.x - p1.x) * 0.08;
+              d += ` Q ${midX} ${midY} ${p2.x} ${p2.y}`;
+            }
+            paths.push({
+              id: `path-${currentPath.join('-')}`,
+              nodeIds: currentPath,
+              nodes,
+              pathData: d,
+            });
+          }
+        }
+        return;
+      }
+
+      for (const childId of validChildren) {
+        visited.add(childId);
+        dfs(childId, [...currentPath, childId], visited);
+        visited.delete(childId);
+      }
+    }
+
+    for (const rootId of rootIds) {
+      const visited = new Set<string>([rootId]);
+      dfs(rootId, [rootId], visited);
+    }
+
+    return paths;
+  }, [skills, links, skillMap]);
+
+  // Connected skills & entire lineage chain for highlighted hover/selection
+  const activeHighlightedLineageNodes = useMemo(() => {
     const targetId = hoveredSkillId || selectedSkillId;
     if (!targetId) return new Set<string>();
 
-    const neighbors = new Set<string>();
-    neighbors.add(targetId);
+    const lineageNodes = new Set<string>();
+    lineageNodes.add(targetId);
+
+    // Add immediate link neighbors
     for (const link of links) {
-      if (link.source_id === targetId) neighbors.add(link.target_id);
-      if (link.target_id === targetId) neighbors.add(link.source_id);
+      if (link.source_id === targetId) lineageNodes.add(link.target_id);
+      if (link.target_id === targetId) lineageNodes.add(link.source_id);
     }
-    return neighbors;
-  }, [hoveredSkillId, selectedSkillId, links]);
+
+    // Add all nodes belonging to any full lineage path passing through the target
+    fullLineagePaths.forEach((path) => {
+      if (path.nodeIds.includes(targetId)) {
+        path.nodeIds.forEach((id) => lineageNodes.add(id));
+      }
+    });
+
+    return lineageNodes;
+  }, [hoveredSkillId, selectedSkillId, links, fullLineagePaths]);
 
   // Filter skills
   const filteredSkills = useMemo(() => {
@@ -317,21 +410,16 @@ export function PathwayCanvas({
             transition: isDragging ? 'none' : 'transform 0.1s ease-out',
           }}
         >
-          {/* Organic Trail Lines connecting skills - ALL PATHS LIT UP WITH DIRECTIONAL PARTICLES */}
-          {links.map((link, index) => {
+          {/* 1. Base Bioluminescent Connection Tracks (All paths always lit up) */}
+          {links.map((link) => {
             const source = skillMap.get(link.source_id);
             const target = skillMap.get(link.target_id);
             if (!source || !target) return null;
 
-            // Determine birth parent vs offspring: particle flows parent -> child
             const { parent, child } = getLineageDirection(source, target);
-            const parentCat = SKILL_CATEGORIES[parent.category] || SKILL_CATEGORIES.craft;
-            const childCat = SKILL_CATEGORIES[child.category] || SKILL_CATEGORIES.craft;
-
             const isHighlighted =
-              activeHighlightedNeighbors.has(link.source_id) && activeHighlightedNeighbors.has(link.target_id);
+              activeHighlightedLineageNodes.has(link.source_id) && activeHighlightedLineageNodes.has(link.target_id);
 
-            // Path starts at the birth parent node and leads to the child node
             const midX = (parent.x + child.x) / 2 + (parent.y - child.y) * 0.08;
             const midY = (parent.y + child.y) / 2 + (child.x - parent.x) * 0.08;
             const pathData = `M ${parent.x} ${parent.y} Q ${midX} ${midY} ${child.x} ${child.y}`;
@@ -342,79 +430,116 @@ export function PathwayCanvas({
 
             const dimFactor = isSourceVisible && isTargetVisible ? 1 : 0.2;
 
-            // Organic duration & negative delay so all streams are in motion immediately
-            const animDur = 2.8 + (index % 4) * 0.5; // 2.8s to 4.3s
-            const animBegin = -((index * 1.1) % animDur);
-
             return (
               <g
                 key={link.id}
                 className="transition-all duration-300"
-                style={{ opacity: (isHighlighted ? 1 : 0.85) * dimFactor }}
+                style={{ opacity: (isHighlighted ? 1 : 0.75) * dimFactor }}
               >
-                {/* 1. Outer bioluminescent glow aura (All paths lit up) */}
+                {/* Outer bioluminescent glow aura */}
                 <path
                   d={pathData}
                   fill="none"
                   stroke={`url(#grad-${link.id})`}
-                  strokeWidth={isHighlighted ? 5.5 : Math.max(3, link.strength + 1.5)}
-                  strokeOpacity={isHighlighted ? 0.95 : 0.45}
+                  strokeWidth={isHighlighted ? 5.5 : Math.max(3, link.strength + 1.2)}
+                  strokeOpacity={isHighlighted ? 0.95 : 0.4}
                   filter="url(#glow)"
                 />
 
-                {/* 2. Core lit-up stream line */}
+                {/* Core lit-up stream line */}
                 <path
                   d={pathData}
                   fill="none"
                   stroke={`url(#grad-${link.id})`}
-                  strokeWidth={isHighlighted ? 2.5 : Math.max(1.6, link.strength)}
-                  strokeOpacity={isHighlighted ? 1 : 0.8}
+                  strokeWidth={isHighlighted ? 2.5 : Math.max(1.5, link.strength * 0.75)}
+                  strokeOpacity={isHighlighted ? 1 : 0.75}
                   strokeDasharray={isHighlighted ? 'none' : '6 3'}
                 />
+              </g>
+            );
+          })}
 
-                {/* 3. Primary animated particle of light moving parent -> child */}
-                <circle
-                  r={isHighlighted ? 4.5 : 3.2}
-                  fill={parentCat.color}
-                  filter="url(#particle-glow)"
-                >
-                  <animateMotion
-                    path={pathData}
-                    dur={`${isHighlighted ? animDur * 0.75 : animDur}s`}
-                    begin={`${animBegin}s`}
-                    repeatCount="indefinite"
+          {/* 2. Deep Multi-Node Evolutionary Streams (Light flows through full chains: A -> B -> C -> ...) */}
+          {fullLineagePaths.map((lineage) => {
+            const isPathHighlighted =
+              hoveredSkillId ? lineage.nodeIds.includes(hoveredSkillId) :
+              selectedSkillId ? lineage.nodeIds.includes(selectedSkillId) : false;
+
+            const originNode = lineage.nodes[0];
+            const originCat = SKILL_CATEGORIES[originNode.category] || SKILL_CATEGORIES.craft;
+
+            // Duration scales with number of nodes: ~2.4s per segment
+            const totalDuration = Math.max(4.5, (lineage.nodes.length - 1) * 2.5);
+
+            // Stagger multiple particles along the multi-node pathway so the flow is continuous
+            const numParticles = Math.min(3, lineage.nodes.length);
+            const particleOffsets = Array.from(
+              { length: numParticles },
+              (_, i) => -(i * (totalDuration / numParticles))
+            );
+
+            return (
+              <g key={lineage.id} className="transition-all duration-300 pointer-events-none">
+                {/* Luminous conduit flare along the full multi-node chain when active */}
+                {isPathHighlighted && (
+                  <path
+                    d={lineage.pathData}
+                    fill="none"
+                    stroke={originCat.color}
+                    strokeWidth="3.5"
+                    strokeOpacity="0.85"
+                    filter="url(#glow)"
                   />
-                </circle>
-
-                {/* 4. Bright white starlight particle nucleus */}
-                <circle
-                  r={isHighlighted ? 2.2 : 1.6}
-                  fill="#ffffff"
-                >
-                  <animateMotion
-                    path={pathData}
-                    dur={`${isHighlighted ? animDur * 0.75 : animDur}s`}
-                    begin={`${animBegin}s`}
-                    repeatCount="indefinite"
-                  />
-                </circle>
-
-                {/* 5. Trailing secondary particle for highlighted trails */}
-                {isHighlighted && (
-                  <circle
-                    r="3.2"
-                    fill={childCat.color}
-                    filter="url(#particle-glow)"
-                    opacity="0.85"
-                  >
-                    <animateMotion
-                      path={pathData}
-                      dur={`${animDur * 0.75}s`}
-                      begin={`${animBegin - 0.35}s`}
-                      repeatCount="indefinite"
-                    />
-                  </circle>
                 )}
+
+                {/* Traveling particles moving continuously through the entire multi-node pathway */}
+                {particleOffsets.map((offset, pIdx) => (
+                  <g key={pIdx}>
+                    {/* Outer glowing energy pulse */}
+                    <circle
+                      r={isPathHighlighted ? 5.5 : 3.6}
+                      fill={originCat.color}
+                      filter="url(#particle-glow)"
+                    >
+                      <animateMotion
+                        path={lineage.pathData}
+                        dur={`${isPathHighlighted ? totalDuration * 0.75 : totalDuration}s`}
+                        begin={`${offset}s`}
+                        repeatCount="indefinite"
+                      />
+                    </circle>
+
+                    {/* Starlight nucleus core */}
+                    <circle
+                      r={isPathHighlighted ? 2.8 : 1.8}
+                      fill="#ffffff"
+                    >
+                      <animateMotion
+                        path={lineage.pathData}
+                        dur={`${isPathHighlighted ? totalDuration * 0.75 : totalDuration}s`}
+                        begin={`${offset}s`}
+                        repeatCount="indefinite"
+                      />
+                    </circle>
+
+                    {/* Trailing comet spark when highlighted */}
+                    {isPathHighlighted && (
+                      <circle
+                        r="3.2"
+                        fill="#22d3ee"
+                        filter="url(#particle-glow)"
+                        opacity="0.8"
+                      >
+                        <animateMotion
+                          path={lineage.pathData}
+                          dur={`${totalDuration * 0.75}s`}
+                          begin={`${offset - 0.25}s`}
+                          repeatCount="indefinite"
+                        />
+                      </circle>
+                    )}
+                  </g>
+                ))}
               </g>
             );
           })}
@@ -425,9 +550,9 @@ export function PathwayCanvas({
             const bloom = getBloomStage(skill.radiance);
             const isSelected = skill.id === selectedSkillId;
             const isHovered = skill.id === hoveredSkillId;
-            const isRelated = activeHighlightedNeighbors.has(skill.id);
+            const isRelated = activeHighlightedLineageNodes.has(skill.id);
             const opacity =
-              activeHighlightedNeighbors.size === 0 || isRelated ? 1 : 0.25;
+              activeHighlightedLineageNodes.size === 0 || isRelated ? 1 : 0.25;
 
             return (
               <g
